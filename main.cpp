@@ -12,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <queue>
 
 using namespace std;
 //  Define command in SampleInput.txt for implement
@@ -20,6 +21,8 @@ const string Insert ("Insert");
 const string Delete ("Delete");
 const string Search ("Search");
 const string Output ("Output.txt");
+
+
 
 int main (int argc, char **argv)
 {
@@ -99,6 +102,9 @@ int main (int argc, char **argv)
             out << "ERROR! Wrong input of command! " << i << endl;  
         }  
     }
+
+    tree.printTreeStructure();
+    // Perform level order traversal and print the structure of the B+ tree
     in.close ();
     out.close ();
     return 0;
