@@ -43,13 +43,13 @@ int main(int argc, char* argv[]) {
     // BPTree<int64_t> index;
     // std::string keys_file_path = "/Users/Mansimar/Downloads/lognormal-190M.bin.data";
 
-    auto keys = new DOUBLE_KEY_TYPE[load_end_point];
+    auto keys = new int64_t[10000];
     std::string keys_file_type = "binary";
     if (keys_file_type == "binary") {
         std::cout<<"Loading binary data "<<std::endl;
-        load_binary_data(keys, load_end_point, keys_file_path);
+        load_binary_data(keys, 100000, keys_file_path);
     } else if (keys_file_type == "text") {
-        load_text_data(keys, load_end_point, keys_file_path);
+        load_text_data(keys, 100000, keys_file_path);
     } else {
         std::cerr << "--keys_file_type must be either 'binary' or 'text'"
                 << std::endl;
@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
         // Do lookups
         double batch_lookup_time = 0.0;
         if (i > 0) {
-        DOUBLE_KEY_TYPE* lookup_keys = nullptr;
+        int64_t* lookup_keys = nullptr;
         if (lookup_distribution == "uniform") {
             lookup_keys = get_search_keys(keys, i, num_lookups_per_batch);
         } else if (lookup_distribution == "zipf") {
@@ -120,9 +120,8 @@ int main(int argc, char* argv[]) {
         int num_keys_after_batch = i + num_actual_inserts;
         auto inserts_start_time = std::chrono::high_resolution_clock::now();
         for (; i < num_keys_after_batch; i++) {
-        // index.insert({keys[i], i});
-        cout<< "keys"<<keys[i]<< endl;
-        index.Insert(keys[i], i);
+            // index.insert({keys[i], i});
+            index.Insert(keys[i], i);
         }
         auto inserts_end_time = std::chrono::high_resolution_clock::now();
         double batch_insert_time =
