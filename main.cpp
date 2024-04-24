@@ -1,111 +1,341 @@
-//
-//  main.cpp
-//  BPTree
-//
-//  Name: Zhang Dong
-//  UFID: 69633923
-//  Email: zdong@ufl.edu
-//
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+/*
+ * Simple benchmark that runs a mixture of point lookups and inserts on ALEX.
+ */
 
 #include "BPTree.hpp"
 
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <queue>
-
-using namespace std;
-//  Define command in SampleInput.txt for implement
-const string Initialize ("Initialize");
-const string Insert ("Insert");
-const string Delete ("Delete");
-const string Search ("Search");
-const string Output ("Output.txt");
+#include <iomanip>
+#include "utils.h"
 
 
+// Modify these if running your own workload
+#define KEY_TYPE long long
+#define PAYLOAD_TYPE double
+#define DOUBLE_KEY_TYPE double
+#define INDEX_PAYLOAD_TYPE int
 
-int main (int argc, char **argv)
-{
-    //  If not select input file, ERROR
-    if (argc != 2) {
-        cout << "ERROR! No Input file!" << endl;
-        exit (-1);
+/*
+ * Required flags:
+ * --keys_file              path to the file that contains keys
+ * --keys_file_type         file type of keys_file (options: binary or text)
+ * --init_num_keys          number of keys to bulk load with
+ * --total_num_keys         total number of keys in the keys file
+ * --batch_size             number of operations (lookup or insert) per batch
+ *
+ * Optional flags:
+ * --insert_frac            fraction of operations that are inserts (instead of
+ * lookups)
+ * --lookup_distribution    lookup keys distribution (options: uniform or zipf)
+ * --time_limit             time limit, in minutes
+ * --print_batch_stats      whether to output stats for each batch
+ */
+int main(int argc, char* argv[]) {
+    int load_end_point = 0;
+
+    //longitudes
+    BPTree<double> index;
+    std::string keys_file_path = "/Users/Mansimar/Downloads/longitudes-200M.bin.data";
+
+    //lognormal
+    // BPTree<int64_t> index;
+    // std::string keys_file_path = "/Users/Mansimar/Downloads/lognormal-190M.bin.data";
+
+    auto keys = new DOUBLE_KEY_TYPE[load_end_point];
+    std::string keys_file_type = "binary";
+    if (keys_file_type == "binary") {
+        std::cout<<"Loading binary data "<<std::endl;
+        load_binary_data(keys, load_end_point, keys_file_path);
+    } else if (keys_file_type == "text") {
+        load_text_data(keys, load_end_point, keys_file_path);
+    } else {
+        std::cerr << "--keys_file_type must be either 'binary' or 'text'"
+                << std::endl;
+        //return 1;
     }
-    
-    ifstream in (argv[1]);
-    ofstream out (Output.c_str ());
-    
-    string line;
-    string command;
-    string data;
-    BPTree tree;
-    
-    int i = 0;
 
-    while (!in.eof ()) {
-        //  Get line of input file as string to compare with command defined
-        i++;
-        getline (in, line);
-        
-        command = line.substr(0, line.find('('));
-        data = line.substr(line.find('(') + 1, line.find(')') - line.find('(') - 1);
 
-        if (command.compare (Initialize) == 0) {
-            //  Intialize operation
-            int order = stoi(data);
-            tree.Initialize (order);
-        } else if (command.compare (Insert) == 0) {
-            //  Insert operation
-            int key = stoi (data.substr(0, data.find(',')));
-            float val = stof (data.substr(data.find(',') + 1, data.length() - data.find(',')));
-            tree.Insert (key, val);
-        } else if (command.compare (Delete) == 0) {
-            //  Delete operation
-            int key = stoi (data);
-            tree.Delete (key);
-        } else if (command.compare (Search) == 0) {
-            //  Search operation for two keys
-            if (data.find(',') != string::npos) {
-                int num;
-                bool *results;
-                float *vals;
-                int key1 = stoi (data.substr(0, data.find(',')));
-                int key2 = stoi (data.substr(data.find(',') + 1, data.length() - data.find(',')));
-                results = tree.Search (key1, key2, vals, num);
-                //  can not find val
-                if (!results[0]) {
-                    out << "";
-                }
-                
-                for (int i = 0; i < num; i++) {
-                    out << vals[i];
-                    if (i != num - 1) out << ", ";
-                }
-                
-                if (!results[1]) {
-                    out << "";
-                }
-                out << endl;
-            } else {
-                //  Search operation for one key
-                float val;
-                int key = stoi (data);
-            
-                if (tree.Search (key, val)) {
-                    out << val << endl;  
-                } else { 
-                    out << "" << endl; 
-                }
-            }
+    std::cout<<"Running benchmark workload "<<"\n";
+    std::string benchmarkName = "parameters.values[0].GetValue<string>()";
+    int init_num_keys = load_end_point;
+    int total_num_keys = 4000000;
+    int batch_size = 10000;
+    double insert_frac = 0.5;
+    string lookup_distribution = "zipf";
+    int i = init_num_keys;
+    long long cumulative_inserts = 0;
+    long long cumulative_lookups = 0;
+    int num_inserts_per_batch = static_cast<int>(batch_size * insert_frac);
+    int num_lookups_per_batch = batch_size - num_inserts_per_batch;
+    double cumulative_insert_time = 0;
+    double cumulative_lookup_time = 0;
+    double time_limit = 0.5;
+    bool print_batch_stats = true;
+    
+
+
+    auto workload_start_time = std::chrono::high_resolution_clock::now();
+    int batch_no = 0;
+    PAYLOAD_TYPE sum = 0;
+    std::cout << std::scientific;
+    std::cout << std::setprecision(3);
+    while (true) {
+        batch_no++;
+
+        // Do lookups
+        double batch_lookup_time = 0.0;
+        if (i > 0) {
+        DOUBLE_KEY_TYPE* lookup_keys = nullptr;
+        if (lookup_distribution == "uniform") {
+            lookup_keys = get_search_keys(keys, i, num_lookups_per_batch);
+        } else if (lookup_distribution == "zipf") {
+            lookup_keys = get_search_keys_zipf(keys, i, num_lookups_per_batch);
         } else {
-            //  Command error
-            out << "ERROR! Wrong input of command! " << i << endl;  
-        }  
+            std::cerr << "--lookup_distribution must be either 'uniform' or 'zipf'"
+                    << std::endl;
+            //return 1;
+        }
+        auto lookups_start_time = std::chrono::high_resolution_clock::now();
+        // for (int j = 0; j < num_lookups_per_batch; j++) {
+        //     DOUBLE_KEY_TYPE key = lookup_keys[j];
+        //     INDEX_PAYLOAD_TYPE* payload = index.get_payload(key);
+        //     if (payload) {
+        //     sum += *payload;
+        //     }
+        // }
+        auto lookups_end_time = std::chrono::high_resolution_clock::now();
+        batch_lookup_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                lookups_end_time - lookups_start_time)
+                                .count();
+        cumulative_lookup_time += batch_lookup_time;
+        cumulative_lookups += num_lookups_per_batch;
+        delete[] lookup_keys;
+        }
+
+        // Do inserts
+        int num_actual_inserts =
+            std::min(num_inserts_per_batch, total_num_keys - i);
+        int num_keys_after_batch = i + num_actual_inserts;
+        auto inserts_start_time = std::chrono::high_resolution_clock::now();
+        for (; i < num_keys_after_batch; i++) {
+        // index.insert({keys[i], i});
+        cout<< "keys"<<keys[i]<< endl;
+        index.Insert(keys[i], i);
+        }
+        auto inserts_end_time = std::chrono::high_resolution_clock::now();
+        double batch_insert_time =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(inserts_end_time -
+                                                                inserts_start_time)
+                .count();
+        cumulative_insert_time += batch_insert_time;
+        cumulative_inserts += num_actual_inserts;
+
+        if (print_batch_stats) {
+        int num_batch_operations = num_lookups_per_batch + num_actual_inserts;
+        double batch_time = batch_lookup_time + batch_insert_time;
+        long long cumulative_operations = cumulative_lookups + cumulative_inserts;
+        double cumulative_time = cumulative_lookup_time + cumulative_insert_time;
+        std::cout << "Batch " << batch_no
+                    << ", cumulative ops: " << cumulative_operations
+                    << "\n\tbatch throughput:\t"
+                    << num_lookups_per_batch / batch_lookup_time * 1e9
+                    << " lookups/sec,\t"
+                    << num_actual_inserts / batch_insert_time * 1e9
+                    << " inserts/sec,\t" << num_batch_operations / batch_time * 1e9
+                    << " ops/sec"
+                    << "\n\tcumulative throughput:\t"
+                    << cumulative_lookups / cumulative_lookup_time * 1e9
+                    << " lookups/sec,\t"
+                    << cumulative_inserts / cumulative_insert_time * 1e9
+                    << " inserts/sec,\t"
+                    << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+                    << std::endl;
+        }
+
+        // Check for workload end conditions
+        if (num_actual_inserts < num_inserts_per_batch) {
+        // End if we have inserted all keys in a workload with inserts
+        break;
+        }
+        double workload_elapsed_time =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::high_resolution_clock::now() - workload_start_time)
+                .count();
+        if (workload_elapsed_time > time_limit * 1e9 * 60) {
+        break;
+        }
     }
 
-    tree.printTreeStructure();
-    // Perform level order traversal and print the structure of the B+ tree
-    in.close ();
-    out.close ();
-    return 0;
+    long long cumulative_operations = cumulative_lookups + cumulative_inserts;
+    double cumulative_time = cumulative_lookup_time + cumulative_insert_time;
+    std::cout << "Cumulative stats: " << batch_no << " batches, "
+                << cumulative_operations << " ops (" << cumulative_lookups
+                << " lookups, " << cumulative_inserts << " inserts)"
+                << "\n\tcumulative throughput:\t"
+                << cumulative_lookups / cumulative_lookup_time * 1e9
+                << " lookups/sec,\t"
+                << cumulative_inserts / cumulative_insert_time * 1e9
+                << " inserts/sec,\t"
+                << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+                << std::endl;
+
+    delete[] keys;
+    // delete[] values;
+
 }
+//   auto flags = parse_flags(argc, argv);
+//   std::string keys_file_path = get_required(flags, "keys_file");
+//   std::string keys_file_type = get_required(flags, "keys_file_type");
+//   auto init_num_keys = stoi(get_required(flags, "init_num_keys"));
+//   auto total_num_keys = stoi(get_required(flags, "total_num_keys"));
+//   auto batch_size = stoi(get_required(flags, "batch_size"));
+//   auto insert_frac = stod(get_with_default(flags, "insert_frac", "0.5"));
+//   std::string lookup_distribution =
+//       get_with_default(flags, "lookup_distribution", "zipf");
+//   auto time_limit = stod(get_with_default(flags, "time_limit", "0.5"));
+//   bool print_batch_stats = get_boolean_flag(flags, "print_batch_stats");
+
+//   // Read keys from file
+//   auto keys = new KEY_TYPE[total_num_keys];
+//   if (keys_file_type == "binary") {
+//     std::cout<<"Loading binary data "<<std::endl;
+//     load_binary_data(keys, total_num_keys, keys_file_path);
+//   } else if (keys_file_type == "text") {
+//     load_text_data(keys, total_num_keys, keys_file_path);
+//   } else {
+//     std::cerr << "--keys_file_type must be either 'binary' or 'text'"
+//               << std::endl;
+//     return 1;
+//   }
+
+//   // Combine bulk loaded keys with randomly generated payloads
+//   auto values = new std::pair<KEY_TYPE, PAYLOAD_TYPE>[init_num_keys];
+//   std::mt19937_64 gen_payload(std::random_device{}());
+//   for (int i = 0; i < init_num_keys; i++) {
+//     values[i].first = keys[i];
+//     values[i].second = static_cast<PAYLOAD_TYPE>(gen_payload());
+//   }
+
+//   // Create ALEX and bulk load
+//   alex::Alex<KEY_TYPE, PAYLOAD_TYPE> index;
+//   std::sort(values, values + init_num_keys,
+//             [](auto const& a, auto const& b) { return a.first < b.first; });
+//   index.bulk_load(values, init_num_keys);
+
+//   // Run workload
+//   int i = init_num_keys;
+//   long long cumulative_inserts = 0;
+//   long long cumulative_lookups = 0;
+//   int num_inserts_per_batch = static_cast<int>(batch_size * insert_frac);
+//   int num_lookups_per_batch = batch_size - num_inserts_per_batch;
+//   double cumulative_insert_time = 0;
+//   double cumulative_lookup_time = 0;
+
+//   auto workload_start_time = std::chrono::high_resolution_clock::now();
+//   int batch_no = 0;
+//   PAYLOAD_TYPE sum = 0;
+//   std::cout << std::scientific;
+//   std::cout << std::setprecision(3);
+//   while (true) {
+//     batch_no++;
+
+//     // Do lookups
+//     double batch_lookup_time = 0.0;
+//     if (i > 0) {
+//       KEY_TYPE* lookup_keys = nullptr;
+//       if (lookup_distribution == "uniform") {
+//         lookup_keys = get_search_keys(keys, i, num_lookups_per_batch);
+//       } else if (lookup_distribution == "zipf") {
+//         lookup_keys = get_search_keys_zipf(keys, i, num_lookups_per_batch);
+//       } else {
+//         std::cerr << "--lookup_distribution must be either 'uniform' or 'zipf'"
+//                   << std::endl;
+//         return 1;
+//       }
+//       auto lookups_start_time = std::chrono::high_resolution_clock::now();
+//       for (int j = 0; j < num_lookups_per_batch; j++) {
+//         KEY_TYPE key = lookup_keys[j];
+//         PAYLOAD_TYPE* payload = index.get_payload(key);
+//         if (payload) {
+//           sum += *payload;
+//         }
+//       }
+//       auto lookups_end_time = std::chrono::high_resolution_clock::now();
+//       batch_lookup_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
+//                               lookups_end_time - lookups_start_time)
+//                               .count();
+//       cumulative_lookup_time += batch_lookup_time;
+//       cumulative_lookups += num_lookups_per_batch;
+//       delete[] lookup_keys;
+//     }
+
+//     // Do inserts
+//     int num_actual_inserts =
+//         std::min(num_inserts_per_batch, total_num_keys - i);
+//     int num_keys_after_batch = i + num_actual_inserts;
+//     auto inserts_start_time = std::chrono::high_resolution_clock::now();
+//     for (; i < num_keys_after_batch; i++) {
+//       index.insert(keys[i], static_cast<PAYLOAD_TYPE>(gen_payload()));
+//     }
+//     auto inserts_end_time = std::chrono::high_resolution_clock::now();
+//     double batch_insert_time =
+//         std::chrono::duration_cast<std::chrono::nanoseconds>(inserts_end_time -
+//                                                              inserts_start_time)
+//             .count();
+//     cumulative_insert_time += batch_insert_time;
+//     cumulative_inserts += num_actual_inserts;
+
+//     if (print_batch_stats) {
+//       int num_batch_operations = num_lookups_per_batch + num_actual_inserts;
+//       double batch_time = batch_lookup_time + batch_insert_time;
+//       long long cumulative_operations = cumulative_lookups + cumulative_inserts;
+//       double cumulative_time = cumulative_lookup_time + cumulative_insert_time;
+//       std::cout << "Batch " << batch_no
+//                 << ", cumulative ops: " << cumulative_operations
+//                 << "\n\tbatch throughput:\t"
+//                 << num_lookups_per_batch / batch_lookup_time * 1e9
+//                 << " lookups/sec,\t"
+//                 << num_actual_inserts / batch_insert_time * 1e9
+//                 << " inserts/sec,\t" << num_batch_operations / batch_time * 1e9
+//                 << " ops/sec"
+//                 << "\n\tcumulative throughput:\t"
+//                 << cumulative_lookups / cumulative_lookup_time * 1e9
+//                 << " lookups/sec,\t"
+//                 << cumulative_inserts / cumulative_insert_time * 1e9
+//                 << " inserts/sec,\t"
+//                 << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+//                 << std::endl;
+//     }
+
+//     // Check for workload end conditions
+//     if (num_actual_inserts < num_inserts_per_batch) {
+//       // End if we have inserted all keys in a workload with inserts
+//       break;
+//     }
+//     double workload_elapsed_time =
+//         std::chrono::duration_cast<std::chrono::nanoseconds>(
+//             std::chrono::high_resolution_clock::now() - workload_start_time)
+//             .count();
+//     if (workload_elapsed_time > time_limit * 1e9 * 60) {
+//       break;
+//     }
+//   }
+
+//   long long cumulative_operations = cumulative_lookups + cumulative_inserts;
+//   double cumulative_time = cumulative_lookup_time + cumulative_insert_time;
+//   std::cout << "Cumulative stats: " << batch_no << " batches, "
+//             << cumulative_operations << " ops (" << cumulative_lookups
+//             << " lookups, " << cumulative_inserts << " inserts)"
+//             << "\n\tcumulative throughput:\t"
+//             << cumulative_lookups / cumulative_lookup_time * 1e9
+//             << " lookups/sec,\t"
+//             << cumulative_inserts / cumulative_insert_time * 1e9
+//             << " inserts/sec,\t"
+//             << cumulative_operations / cumulative_time * 1e9 << " ops/sec"
+//             << std::endl;
+
+//   delete[] keys;
+//   delete[] values;
+
